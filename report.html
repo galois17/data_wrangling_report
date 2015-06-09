@@ -1,0 +1,432 @@
+
+<html>
+
+<head>
+  <style type="text/css">
+   body {
+        padding-left: 0.9em;
+        font-family: arial, sans, sans-serif;
+        margin: 0;
+      }
+    pre { 
+      font-family: "Courier New", monospace;
+
+    }
+
+    h3 {
+      color: orange;
+    }
+
+    h4 {
+      color: brown;
+    }
+
+    p.answer {
+      font-size:20px;
+      color: blue;
+      font-weight:bold;
+
+    }
+
+  </style>
+</head>
+
+<body>
+<h1>OpenStreetMap Sample Project
+Data Wrangling with MongoDB</h1>
+
+<h3>Boston, MA map generated with: node(42.25,-71.08,42.48,-71.06);out meta;</h3>
+
+<ul>
+  <li><a href="#problems">Problems</a>
+  <li><a href="#comments">Other Ideas About the Datasets</a>
+</ul>
+
+
+
+<h3>Problems</h3>
+<a name="problems"></a>
+<h4>Explore Amenities</h4>
+<p>The items I explored were the 'amenity' and streets. We'll start with 'amenity'. I thought that this might be a place where the value can divert from standard naming conventions.</p>
+<p>From <a href="http://wiki.openstreetmap.org/wiki/Key:amenity">http://wiki.openstreetmap.org/wiki/Key:amenity</a>, it appears that the convention here is to user lowercase underscored names. I have the following
+when I dug into the data using 'play.py'. Below are some of the amenity values and their counts. The rest are <a href="#street_type_data">here</a>.
+</p>
+<pre>
+ khem@mac:~/Documents/code/udacity_reports/data_wrangling_report (master)$ python3 play.py 
+ arts_centre =>  1
+ parking_entrance =>  1
+ preschool =>  1
+ community services =>  1
+ City Hall =>  1
+ fountain =>  1
+ social_facility =>  1
+ truck_rental =>  1
+ picnic_area =>  1
+ funeral_home =>  1
+ nightclub =>  1
+ cinema =>  2
+.
+.
+.
+ place_of_worship =>  72
+ restaurant =>  78
+ school =>  123
+ bench =>  255
+ parking =>  309
+</pre>
+
+<p>There are strays such as 'community services' and 'City Hall'. So the value may 
+  not be underscored or it may not exist on <a href="http://wiki.openstreetmap.org/wiki/Key:amenity">this site
+  </a>. An initial cleanup effort here would be to underscore the fields.
+</p> 
+
+<h4>Explore Addresses</h4>
+<p>
+The other item I looked at are addresses.
+We would like to normalize the street types like in the lesson but the streets are not all in a <a href="http://wiki.openstreetmap.org/wiki/Karlsruhe_Schema">Karlsruhe Schema</a> style.
+There's a mixed bag of that schema and simply using "address" for a tag. For example:
+</p>
+
+<pre>
+                &lt;tag k="addr:state" v="MA"/&gt;
+                &lt;tag k="addr:street" v="Dartmouth Street"/&gt;              
+                &lt;tag k="addr:postcode" v="02116"/&gt;
+                &lt;tag k="addr:housenumber" v="145"/&gt;
+                &lt;tag k="addr:city" v="Boston"/&gt;
+
+                vs.
+
+                &lt;tag k="address" v="200 Nashua Street, Boston, MA 02114"/&gt;
+</pre>
+
+<p>An audit shows:
+</p>
+<pre>
+ non-Karlsruhe:  602
+ Karlsruhe:  10072
+</pre>
+
+<p>
+To clean we'll need to dig into both types. The problem would be matching the street type with a decent regex.
+It may be worth it to convert those addresses into Karlruhe but I will not pursue that here. The street types exhibit the same issue as in the lesson where. Some data are <a href="#street_type_data">here</a>.
+</p>
+
+<p>
+There are street types that are just numbers like "303" from looking at the data. A look at the actual data reveals the value is: First Street, Suite 303. And so there are addresses with secondary address tokenized by possibly commas. This requires a modification of the regular expression used to match the street type. We will discuss cleaning the street types after dealing with amenities.
+</p>
+
+
+<h3>Cleaning Amenities</h3>
+<p>
+The approach here will be to simply lowercase and underscore the amenity, i.e. replace blank spaces with '_' and lowercase the entire value.
+</p>
+
+
+<h3>Cleaning Street types</h3>
+<p>
+The streets will be cleaned under two cases. For Karlsruhe schema style addresses, we'll clean it like the examples in this lesson. My new attempt with this report is to look at non-Karlsruhe schema addresses as well. This is done in #shape_non_karlsruhe() in fix.py. We tokenize the string using ',' and break it into 'housenumber', 'street', 'city', 'state', and 'postcode'. We then toss into an 'address' hash just like the fix for Karlsruhe schema style addresses.
+</p>
+
+<h3>Overview of the data</h3>
+<h4>Size of the file</h4>
+<pre>
+  ls -lh data/boston_massachusetts_small.osm
+</pre>
+<p class="answer">-rw-r-----@ 1 khem  staff    59M Jun  7 17:50 data/boston_massachusetts_small.osm</p>
+
+<h4>Number of documents</h4>
+<pre>
+> db.docs.find().count()
+</pre>
+<p class="answer">295671  </p>
+
+<h4>Number of nodes</h4>
+<pre>
+> db.docs.find({"type":"node"}).count()
+
+</pre>
+<p class="answer">255310</p>
+
+<h4>Number of ways</h4>
+<pre>
+> db.docs.find({"type":"way"}).count()
+
+</pre>
+<p class="answer">40361</p>
+
+<h4>Number of unique users</h4>
+<pre>
+> db.docs.distinct("created.user").length
+</pre>
+<p class="answer">311</p>
+
+<h4>Number of places marked as 'cafe' for amenity</h4>
+<pre>
+db.docs.aggregate([
+    {"$match":{"amenity": {"$regex": /cafe/i}}},
+    {"$group":{"_id":"$amenity", "count":{"$sum":1}}}               
+  ])
+</pre>
+<p class="answer">28</p>
+
+<h4>Number of starbucks</h4>
+<pre>
+> db.docs.aggregate([
+              {"$match":{"name": {"$regex": /starbucks/i}}}, 
+              {"$group":{"_id":"$name", "count":{"$sum":1}}}
+              ])
+{
+  "result" : [
+    {
+      "_id" : "Starbucks",
+      "count" : 4
+    },
+    {
+      "_id" : "Starbucks Coffee",
+      "count" : 1
+    }
+  ],
+  "ok" : 1
+}
+> 
+> db.docs.aggregate([
+              {"$match":{"name": {"$regex": /starbucks/i}}}, 
+              {"$group":{"_id":"$name", "count":{"$sum":1}}},
+              {"$group": {"_id":null, "total": {"$sum": "$count"}}}  
+              ])
+</pre>
+<!--
+<p class="answer">{ "result" : [ { "_id" : null, <b>"total" : 5</b> } ], "ok" : 1 }</p>
+-->
+<p class="answer">"total" : 5</p>
+
+<h4>Number of Dunkin Donuts</h4>
+<pre>
+> db.docs.aggregate([{"$match":{"name": {"$regex": /dunkin/i}}}, 
+                    {"$group":{"_id":"$name", "count":{"$sum":1}}}                    
+                  ])
+{
+  "result" : [
+    {
+      "_id" : "Dunkin' Donuts",
+      "count" : 2
+    },
+    {
+      "_id" : "Dunkin Donuts",
+      "count" : 6
+    }
+  ],
+  "ok" : 1
+}
+> db.docs.aggregate([{"$match":{"name": {"$regex": /dunkin/i}}}, 
+                    {"$group":{"_id":"$name", "count":{"$sum":1}}},
+                    {"$group": {"_id":null, "total": {"$sum": "$count"}}}   
+                  ])
+
+
+</pre>
+<!--
+<p class="answer">{ "result" : [ { "_id" : null, "total" : 8 } ], "ok" : 1 }</p>
+-->
+<p class="answer">"total" : 8</p>
+
+<h4>How close are Starbucks shops to Dunkin Donuts on average in this small piece of Boston?</h4>
+<p>We first create the indices.</p>
+<pre>
+db.docs.ensureIndex({"pos": "2dsphere"})
+</pre>
+<p>
+The output of analyze_loc.py gives:
+</p>
+<p class="answer">
+Average distance of closest dunkin donuts to each starbucks:  0.525304289549479 kilometers 
+or 0.32640885170164935 miles
+</p>
+
+<h3>Other Ideas About the Datasets</h3>
+<a name="comments"></a>
+<p>
+When cross referencing with Google maps and from my own experience of living in Boston, there's some missing data. There are also Dunkin Donuts in train stations and in other super markets. For example, I checked
+the Starbucks location at 10 Huntington Avenue (42.3484585, -71.0763809). There's a closer Dunkin Donuts than the one at (42.3722863, -71.0797864). A closer Dunkin Donuts is, 430 Stuart Street, Boston, MA 02116 (42.348748, -71.075219). From the data we have, this does at least tell us that for this piece of Boston, there's a Dunkin Donuts nearby for each Starbucks-- at average of 0.32 miles.
+</p>
+
+<p>
+Further inspection shows that some of these Dunkin Donuts nodes does not have any address associated with them. Also some nodes appear to be the same location but listed under different users. The data will be improved greatly if there were also addresses associated with them. From the below, we see that 2 out of 5 Starbucks have addresses; and 2 out of 8 Dunkin Donuts have addresses.
+</p>
+
+<pre>
+db.docs.aggregate([
+    {"$match":{ "$and": [ {"name": {"$regex": /starbucks/i}}, {"address": {"$exists": 1} }  ] }   },                
+    {"$group":{"_id":"$name", "count":{"$sum":1}}}               
+  ])
+</pre>
+<p class="answer">2</p>
+
+
+<pre>
+db.docs.aggregate([
+    {"$match":{ "$and": [ {"name": {"$regex": /dunkin/i}}, {"address": {"$exists": 1} }  ] }   },                
+    {"$group":{"_id":"$name", "count":{"$sum":1}}}               
+  ])
+</pre>
+<p class="answer">2</p>
+
+<h3>Audit Data</h3>
+<a href="street_type_data"></a>
+<h3>Amenities Data</h3>
+<pre>
+ khem@mac:~/Documents/code/udacity_reports/data_wrangling_report (master)$ python3 play.py 
+ arts_centre =>  1
+ parking_entrance =>  1
+ preschool =>  1
+ community services =>  1
+ City Hall =>  1
+ fountain =>  1
+ social_facility =>  1
+ truck_rental =>  1
+ picnic_area =>  1
+ funeral_home =>  1
+ nightclub =>  1
+ cinema =>  2
+ vending_machine =>  2
+ townhall =>  2
+ telephone =>  2
+ mortuary =>  2
+ veterinary =>  2
+ car_wash =>  2
+ courthouse =>  3
+ nursing_home =>  3
+ swimming_pool =>  3
+ car_sharing =>  3
+ prison =>  3
+ marketplace =>  3
+ atm =>  3
+ grave_yard =>  3
+ social_centre =>  4
+ waste_basket =>  5
+ post_office =>  5
+ doctors =>  6
+ toilets =>  6
+ public_building =>  6
+ pharmacy =>  7
+ bar =>  7
+ drinking_water =>  7
+ dentist =>  8
+ pub =>  10
+ fuel =>  11
+ college =>  12
+ police =>  12
+ theatre =>  14
+ university =>  15
+ fire_station =>  16
+ hospital =>  19
+ bank =>  20
+ bicycle_parking =>  22
+ bicycle_rental =>  28
+ cafe =>  28
+ fast_food =>  29
+ hydrant =>  33
+ post_box =>  43
+ library =>  70
+ place_of_worship =>  72
+ restaurant =>  78
+ school =>  123
+ bench =>  255
+ parking =>  309
+</pre>
+
+<h3>Street types from node/way in Karlsruhe schema style</h3>
+<pre>
+  => Karlsruhe Street types
+ street:  1100
+ street:  Row
+ street:  Boylston
+ street:  LEVEL
+ street:  Extension
+ street:  St.
+ street:  East
+ street:  846028
+ street:  St
+ street:  Heights
+ street:  Ave
+ street:  Plaza
+ street:  Lafayette
+ street:  Way
+ street:  South
+ street:  303
+ street:  Highway
+ street:  Terrace
+ street:  floor
+ street:  Park
+ street:  UNKNOWN
+ street:  Pl
+</pre>
+
+
+<h3>Street types from node/way in NON-Karlsruhe schema style</h3>
+<pre>
+=> non-Karlsruhe Street types
+ street:  366354
+ street:  Bowdoin
+ street:  Ave.
+ street:  Hancock
+ street:  London
+ street:  Rd.
+ street:  Moon
+ street:  Plz
+ street:  Pasteur
+ street:  Sq
+ street:  Blvd
+ street:  Blvd.
+ street:  House
+ street:  Hospital
+ street:  St.
+ street:  Ln
+ street:  Norris
+ street:  Alphonsus
+ street:  Hill
+ street:  Ave
+ street:  Beacon
+ street:  Roa
+ street:  Harrison
+ street:  Moore
+ street:  Highway
+ street:  Hammond
+ street:  Park
+ street:  Plaza
+ street:  391497
+ street:  Circle
+ street:  UNKNOWN
+ street:  Babson
+ street:  St..
+ street:  02467
+ street:  Marlborough
+ street:  Summer
+ street:  Newton
+ street:  MA
+ street:  Broadway
+ street:  Rd
+ street:  Leverett
+ street:  Brimmer
+ street:  Fourth
+ street:  Complex
+ street:  Stanton
+ street:  Loga
+ street:  Pkwy.
+ street:  Fairfield
+ street:  Arlington
+ street:  Pkwy
+ street:  Fenway
+ street:  Centre
+ street:  Bridge
+ street:  Cambridge
+ street:  West
+ street:  St
+ street:  Ln.
+ street:  Riverway
+ street:  Terrace
+</pre>
+
+</body>
+
+</html>
