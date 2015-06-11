@@ -76,8 +76,7 @@ when I dug into the data using 'play.py'. Below are some of the amenity values a
 </pre>
 
 <p>There are strays such as 'community services' and 'City Hall'. So the value may 
-  not be underscored or it may not exist on <a href="http://wiki.openstreetmap.org/wiki/Key:amenity">this site
-  </a>. An initial cleanup effort here would be to underscore the fields.
+  not be underscored or it may not exist on. An initial cleanup effort here would be to underscore the fields.
 </p> 
 
 <h4>Explore Addresses</h4>
@@ -112,8 +111,22 @@ It may be worth it to convert those addresses into Karlruhe but I will not pursu
 </p>
 
 <p>
-There are street types that are just numbers like "303" from looking at the data. A look at the actual data reveals the value is: First Street, Suite 303. And so there are addresses with secondary address tokenized by possibly commas. This requires a modification of the regular expression used to match the street type. We will discuss cleaning the street types after dealing with amenities.
+There are street types that are just numbers like "303" from looking at the data. A look at the actual data reveals the value is: First Street, Suite 303. And so there are addresses with secondary address tokenized by possibly commas. This requires a modification of the regular expression used to match the street type. 
+For example, we have this data:
 </p>
+<pre>
+ &lt;tag k="address" v="294 Bowdoin Street, Dorchester MA 02122"/&gt;
+</pre>
+
+<p>
+We need to split this by using "," as the delimiter. This gives us the street of "294 Bowdoin Street".
+</p>
+
+<p>
+We will discuss cleaning the street types after dealing with amenities.
+</p>
+
+
 
 
 <h3>Cleaning Amenities</h3>
@@ -121,11 +134,35 @@ There are street types that are just numbers like "303" from looking at the data
 The approach here will be to simply lowercase and underscore the amenity, i.e. replace blank spaces with '_' and lowercase the entire value.
 </p>
 
+<p>
+For example, for the item with amenity of "City Hall", we now have:
+</p>
+
+<pre>
+> db.docs.find({"amenity": "city_hall"})
+{ ...
+  "name" : "Malden Government Center", 
+  "amenity" : "city_hall"
+  ...
+}
+</pre>
+
 
 <h3>Cleaning Street types</h3>
 <p>
 The streets will be cleaned under two cases. For Karlsruhe schema style addresses, we'll clean it like the examples in this lesson. My new attempt with this report is to look at non-Karlsruhe schema addresses as well. This is done in #shape_non_karlsruhe() in fix.py. We tokenize the string using ',' and break it into 'housenumber', 'street', 'city', 'state', and 'postcode'. We then toss into an 'address' hash just like the fix for Karlsruhe schema style addresses.
 </p>
+
+<p>
+The example we discussed in the "Explore Addresses" with address of "294 Bowdoin Street, Dorchester MA 02122" will be broken into:
+</p>
+
+<pre>
+> db.docs.find({"address.street": "Bowdoin Street"})
+{ ...
+  , "address" : { "street" : "Bowdoin Street", "housenumber" : "294", "postcode" : "02122", "city" : "Dorchester", "state" : "MA" }, 
+  ... }
+</pre>
 
 <h3>Overview of the data</h3>
 <h4>Size of the file</h4>
@@ -270,6 +307,81 @@ db.docs.aggregate([
   ])
 </pre>
 <p class="answer">2</p>
+
+<h4>Ideas about improving</h4>
+
+<p>
+To address the issue with amenities: A sheme would be to parse the website <a href="http://wiki.openstreetmap.org/wiki/Key:amenity">http://wiki.openstreetmap.org/wiki/Key:amenity</a> to find out if the amenity we see (after normalizing by lowercase+underscore) exists in there. That's a programmatic solution to checking it. We then can see what changes can be made can be done to our data if the amenity exists. If not, we'll have to create a new amenity that makes sense and request the site be updated.
+</p>
+
+<p>To address the issue of nodes with missing addresses: A scheme would be to request that the user who created
+the node to add it by providing him/her with the address. This will be done through Open Street Maps site, namely, the site https://www.openstreetmap.org/user/&lt;username&gt;. You can find the node the user created and write something in the 'discussion' box. The challenge is that this is a manual process with many nodes to deal with like with we have. A programmatic solution of sending a POST request with a suggestion to the user to https://www.openstreetmap.org/changeset/&lt;id&gt; would be ideal.
+</p>
+
+<p>
+For our data, the list of users and node id's for Starbucks and Dunkin Donuts without addresses are found with:
+</p>
+
+<pre>
+> db.docs.aggregate([{"$match":{ "$and": [ {"name": {"$regex": /starbucks|dunkin/i}}, {"address": {"$exists": 0} }  ] } }, {"$project": {"user":"$created.user", "id":"$id" }} ])
+{
+  "result" : [
+    {
+      "_id" : ObjectId("5574ff255d0b723a6a8be8d2"),
+      "id" : "957119806",
+      "user" : "OceanVortex"
+    },
+    {
+      "_id" : ObjectId("5574ff255d0b723a6a8beebd"),
+      "id" : "966211184",
+      "user" : "OceanVortex"
+    },
+    {
+      "_id" : ObjectId("5574ff255d0b723a6a8bef53"),
+      "id" : "966211791",
+      "user" : "OceanVortex"
+    },
+    {
+      "_id" : ObjectId("5574ff2b5d0b723a6a8c9de3"),
+      "id" : "1979657115",
+      "user" : "zacmccormick"
+    },
+    {
+      "_id" : ObjectId("5574ff2d5d0b723a6a8ced1a"),
+      "id" : "2428711851",
+      "user" : "hopet"
+    },
+    {
+      "_id" : ObjectId("5574ff2e5d0b723a6a8d03b4"),
+      "id" : "2623047090",
+      "user" : "kisaa"
+    },
+    {
+      "_id" : ObjectId("5574ff2e5d0b723a6a8d17df"),
+      "id" : "3230804271",
+      "user" : "jwass"
+    },
+    {
+      "_id" : ObjectId("5574ff2e5d0b723a6a8d1b22"),
+      "id" : "3310952563",
+      "user" : "Ahlzen"
+    },
+    {
+      "_id" : ObjectId("5574ff305d0b723a6a8d5de6"),
+      "id" : "29652014",
+      "user" : "kisaa"
+    }
+  ],
+  "ok" : 1
+}
+
+</pre>
+
+<h3>Conclusion</h3>
+<p>
+From our experimentation with this small slice of Boston, we can see that for each Starbucks, there's a Dunkin
+Donuts close by (0.32 miles on average). The availability of the latitude/longitude data makes our analysis possible, but there's much more to be desired. Namely, we would like to also have addresses with these coffee shops; and we would like consistent values for amenities. Some programmatic solutions are proposed to address these issues. The issue of cleaning street types for both Karlsruhe schema style and non-Karlsruhe schema style addresses are done in this report. 
+</p>
 
 <h3>Audit Data</h3>
 <a href="street_type_data"></a>
